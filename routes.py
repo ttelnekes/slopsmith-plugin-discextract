@@ -1,6 +1,7 @@
 """Base Game Song Extractor plugin — split songs.psarc into individual CDLCs."""
 
 import asyncio
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,19 @@ from fastapi import WebSocket, WebSocketDisconnect
 _get_dlc_dir = None
 _extract_meta = None
 _meta_db = None
+_extractor_mod = None
+
+
+def _extractor():
+    """Load this plugin's extractor.py with a unique module name to avoid conflicts."""
+    global _extractor_mod
+    if _extractor_mod is None:
+        spec = importlib.util.spec_from_file_location(
+            "disc_extract_extractor", Path(__file__).parent / "extractor.py"
+        )
+        _extractor_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_extractor_mod)
+    return _extractor_mod
 
 
 def _find_rs_dir(dlc_dir):
@@ -92,7 +106,7 @@ def setup(app, context):
 
         song_list = sorted(songs.values(), key=lambda s: s["title"])
         for s in song_list:
-            from extractor import sanitize_filename
+            sanitize_filename = _extractor().sanitize_filename
             out_name = f"{sanitize_filename(s['title'])} - {sanitize_filename(s['artist'])}_p.psarc"
             s["extracted"] = out_name in extracted
 
@@ -125,11 +139,16 @@ def setup(app, context):
 
         def _do_extract():
             try:
-                from extractor import (
-                    PsarcReader, parse_bnk_wem_id, get_song_info, sanitize_filename,
-                    build_hsan, build_aggregate_graph, update_xblock,
-                    MANIFEST_DIR, APPID,
-                )
+                _ext = _extractor()
+                PsarcReader = _ext.PsarcReader
+                parse_bnk_wem_id = _ext.parse_bnk_wem_id
+                get_song_info = _ext.get_song_info
+                sanitize_filename = _ext.sanitize_filename
+                build_hsan = _ext.build_hsan
+                build_aggregate_graph = _ext.build_aggregate_graph
+                update_xblock = _ext.update_xblock
+                MANIFEST_DIR = _ext.MANIFEST_DIR
+                APPID = _ext.APPID
                 from patcher import pack_psarc
                 import tempfile
 
